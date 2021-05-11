@@ -22,9 +22,6 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/services/bas.h>
-#include <bluetooth/services/hrs.h>
-
-#include "cts.h"
 
 /* Custom Service Variables */
 static struct bt_uuid_128 vnd_uuid = BT_UUID_INIT_128(
@@ -67,6 +64,8 @@ static ssize_t write_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 static uint8_t simulate_vnd;
 static uint8_t indicating;
+static uint8_t flow_value = 1U;
+
 static struct bt_gatt_indicate_params ind_params;
 
 static void vnd_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
@@ -196,15 +195,15 @@ BT_GATT_SERVICE_DEFINE(vnd_svc,
 	BT_GATT_CHARACTERISTIC(&vnd_enc_uuid.uuid,
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
 			       BT_GATT_CHRC_INDICATE,
-			       BT_GATT_PERM_READ_ENCRYPT |
-			       BT_GATT_PERM_WRITE_ENCRYPT,
+			       BT_GATT_PERM_READ |
+			       BT_GATT_PERM_WRITE,
 			       read_vnd, write_vnd, vnd_value),
 	BT_GATT_CCC(vnd_ccc_cfg_changed,
-		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE_ENCRYPT),
+		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 	BT_GATT_CHARACTERISTIC(&vnd_auth_uuid.uuid,
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
-			       BT_GATT_PERM_READ_AUTHEN |
-			       BT_GATT_PERM_WRITE_AUTHEN,
+			       BT_GATT_PERM_READ |
+			       BT_GATT_PERM_WRITE,
 			       read_vnd, write_vnd, vnd_value),
 	BT_GATT_CHARACTERISTIC(&vnd_long_uuid.uuid, BT_GATT_CHRC_READ |
 			       BT_GATT_CHRC_WRITE | BT_GATT_CHRC_EXT_PROP,
@@ -225,9 +224,7 @@ BT_GATT_SERVICE_DEFINE(vnd_svc,
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL,
-		      BT_UUID_16_ENCODE(BT_UUID_HRS_VAL),
-		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL),
-		      BT_UUID_16_ENCODE(BT_UUID_CTS_VAL)),
+		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL,
 		      0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
 		      0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12),
@@ -258,8 +255,6 @@ static void bt_ready(void)
 
 	printk("Bluetooth initialized\n");
 
-	cts_init();
-
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();
 	}
@@ -273,29 +268,6 @@ static void bt_ready(void)
 	printk("Advertising successfully started\n");
 }
 
-static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Passkey for %s: %06u\n", addr, passkey);
-}
-
-static void auth_cancel(struct bt_conn *conn)
-{
-	char addr[BT_ADDR_LE_STR_LEN];
-
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-	printk("Pairing cancelled: %s\n", addr);
-}
-
-static struct bt_conn_auth_cb auth_cb_display = {
-	.passkey_display = auth_passkey_display,
-	.passkey_entry = NULL,
-	.cancel = auth_cancel,
-};
 
 static void bas_notify(void)
 {
@@ -336,19 +308,12 @@ void main(void)
 	bt_ready();
 
 	bt_conn_cb_register(&conn_callbacks);
-	bt_conn_auth_cb_register(&auth_cb_display);
 
 	/* Implement notification. At the moment there is no suitable way
 	 * of starting delayed work so we do it here
 	 */
 	while (1) {
 		k_sleep(K_SECONDS(1));
-
-		/* Current Time Service updates only when time is changed */
-		cts_notify();
-
-		/* Heartrate measurements simulation */
-		hrs_notify();
 
 		/* Battery level simulation */
 		bas_notify();
@@ -359,11 +324,13 @@ void main(void)
 				continue;
 			}
 
+			flow_value++;
+
 			ind_params.attr = &vnd_svc.attrs[2];
 			ind_params.func = indicate_cb;
 			ind_params.destroy = indicate_destroy;
-			ind_params.data = &indicating;
-			ind_params.len = sizeof(indicating);
+			ind_params.data = &flow_value;
+			ind_params.len = sizeof(flow_value);
 
 			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
 				indicating = 1U;

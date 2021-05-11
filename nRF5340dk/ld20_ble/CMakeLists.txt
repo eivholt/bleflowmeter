@@ -6,5 +6,4 @@ project(ld20_ble)
 
 target_sources(app PRIVATE
   src/main.c
-  src/cts.c
 )
