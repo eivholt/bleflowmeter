@@ -1,6 +1,4 @@
 
 nRF5340dk/i2c_scanner/build/
-
 nRF5340dk/i2c_ld20/build/
-
-nRF5340dk/i2c_ld20/build/
+nRF5340dk/ld20_ble/build/
