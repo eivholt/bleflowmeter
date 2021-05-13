@@ -23,6 +23,9 @@
 #include <bluetooth/gatt.h>
 #include <bluetooth/services/bas.h>
 
+#include <device.h>
+#include <drivers/i2c.h>
+
 /* Custom Service Variables */
 static struct bt_uuid_128 vnd_uuid = BT_UUID_INIT_128(
 	0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
@@ -33,6 +36,22 @@ static struct bt_uuid_128 vnd_enc_uuid = BT_UUID_INIT_128(
 	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
 
 static uint8_t vnd_value[] = { 'V', 'e', 'n', 'd', 'o', 'r' };
+
+#define I2C_DEV "I2C_1"
+#define LD20_I2C_ADDRESS	0x08
+static const uint16_t LD20_STARTCONTINOUS_CMD1 = 	0x36;
+static const uint16_t LD20_STARTCONTINOUS_CMD2 = 	0x08;
+static const uint16_t LD20_PARTNAME_CMD = 			0x367C;
+static const uint16_t LD20_SERIAL_CMD = 			0xE102;
+static const uint8_t LD20_RESET_CMD = 				0x06;
+
+const float SCALE_FACTOR_FLOW = 1200.0;
+const float SCALE_FACTOR_TEMP = 200.0;
+const char *UNIT_FLOW = " ml/h";
+const char *UNIT_TEMP = " deg C";
+
+uint8_t flag_air_in_line, flag_high_flow, flag_exp_smooth;
+float scaled_flow_value, scaled_temperature_value;
 
 static ssize_t read_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			void *buf, uint16_t len, uint16_t offset)
@@ -77,7 +96,7 @@ static void indicate_cb(struct bt_conn *conn,
 
 static void indicate_destroy(struct bt_gatt_indicate_params *params)
 {
-	printk("Indication complete\n");
+	//printk("Indication complete\n");
 	indicating = 0U;
 }
 
@@ -215,8 +234,48 @@ static void bas_notify(void)
 
 void main(void)
 {
-	int err;
+	int i, ret;
+	const struct device *i2c_dev;
+	i2c_dev = device_get_binding(I2C_DEV);
+	if (!i2c_dev) {
+		printk("I2C: Device driver not found.\n");
+		return;
+	}
 
+	struct i2c_msg msgs[1];
+	uint8_t data[] = {LD20_RESET_CMD};
+	msgs[0].buf = data;
+	msgs[0].len = 1;
+	msgs[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+	
+	ret = i2c_transfer(i2c_dev, &msgs[0], 1, 0x00);
+	if (ret) {
+		printk("Error writing LD20_RESET_CMD to LD20! error code (%d)\n", ret);
+		return;
+	} else {
+		printk("Wrote LD20_RESET_CMD to address 0x00.\n");
+	}
+
+	// Give LD20 time to soft reboot
+	k_msleep(25);
+
+	struct i2c_msg msgs2[1];
+	uint8_t data2[] = {LD20_STARTCONTINOUS_CMD1, LD20_STARTCONTINOUS_CMD2};
+	msgs2[0].buf = data2;
+	msgs2[0].len = 2;
+	msgs2[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+	
+	ret = i2c_transfer(i2c_dev, &msgs2[0], 2, LD20_I2C_ADDRESS);
+	if (ret) {
+		printk("Error writing LD20_STARTCONTINOUS to LD20! error code (%d)\n", ret);
+		//return;
+	} else {
+		printk("Wrote LD20_STARTCONTINOUS to address 0x08.\n");
+	}
+
+	k_msleep(120);
+
+	int err;
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
@@ -226,7 +285,7 @@ void main(void)
 	bt_ready();
 
 	bt_conn_cb_register(&conn_callbacks);
-
+	
 	/* Implement notification. At the moment there is no suitable way
 	 * of starting delayed work so we do it here
 	 */
@@ -242,13 +301,67 @@ void main(void)
 				continue;
 			}
 
-			flow_value++;
+			// Byte1: Flow 8msb
+			// Byte2: Flow 8lsb
+			// Byte3: CRC
+			// Byte4: Temp 8msb
+			// Byte5: Temp 8lsb
+			// Byte6: CRC
+			// Byte7: Signaling flags 8msb
+			// Byte8: Signaling flags 8lsb
+			// Byte9: CRC
+
+			// Bit, Signaling flags (set to high = 1, set to low = 0)
+			// 0 Air-in-Line flag
+			// 1 High Flow flag
+			// 2-4 Unused, reserved for future use.
+			// 5 Exponential smoothing active
+			// 6-15 Unused, reserved for future use
+
+
+			uint16_t sensor_flow_value, sensor_temperature_value, sensor_signalingflags_value;
+			int16_t signed_flow_value, signed_temperature_value;
+			uint8_t sensor_flow_crc, sensor_temperature_crc, sensor_signalingflags_crc;
+		
+			struct i2c_msg msgs3[1];
+			uint8_t data3[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+			msgs3[0].buf = data3;
+			msgs3[0].len = 9;
+			msgs3[0].flags = I2C_MSG_READ | I2C_MSG_STOP;
+			
+			ret = i2c_transfer(i2c_dev, &msgs3[0], 9, LD20_I2C_ADDRESS);
+
+			//printk("Read 0x%X 0x%X 0x%X 0x%X 0x%X 0x%X \n", data3[0], data3[1], data3[3], data3[4], data3[6], data3[7]);
+
+			sensor_flow_value = data3[0] << 8;
+			sensor_flow_value |= data3[1];
+			sensor_flow_crc = data3[2];
+			sensor_temperature_value = data3[3] << 8;
+			sensor_temperature_value |= data3[4];
+			sensor_temperature_crc = data3[5];
+			sensor_signalingflags_value = data3[6] << 8;
+			sensor_signalingflags_value |= data3[7];
+			sensor_signalingflags_crc = data3[8];
+
+			signed_flow_value = (int16_t) sensor_flow_value;
+			scaled_flow_value = ((float) signed_flow_value) / SCALE_FACTOR_FLOW;
+
+			signed_temperature_value = (int16_t) sensor_temperature_value;
+			scaled_temperature_value = ((float) signed_temperature_value) / SCALE_FACTOR_TEMP;
+
+			flag_air_in_line = ((data3[7] >> 0) & 0x01);
+			flag_high_flow = ((data3[7] >> 1) & 0x01);
+			flag_exp_smooth = ((data3[7] >> 5) & 0x01);
+
+			printk("Read flow: %.2f temperature: %.2f flags: Air in line: %x High flow: %x Exponential smoothing active: %x \n", scaled_flow_value, scaled_temperature_value, flag_air_in_line, flag_high_flow, flag_exp_smooth);
+
+			//flow_value++;
 
 			ind_params.attr = &vnd_svc.attrs[2];
 			ind_params.func = indicate_cb;
 			ind_params.destroy = indicate_destroy;
-			ind_params.data = &flow_value;
-			ind_params.len = sizeof(flow_value);
+			ind_params.data = &flag_high_flow;
+			ind_params.len = sizeof(flag_high_flow);
 
 			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
 				indicating = 1U;

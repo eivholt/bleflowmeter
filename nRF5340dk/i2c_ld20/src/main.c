@@ -104,8 +104,8 @@ void main(void)
 	
 	ret = i2c_transfer(i2c_dev, &msgs[0], 1, 0x00);
 	if (ret) {
-		printk("Error writing to LD20! error code (%d)\n", ret);
-		return;
+		printk("Error writing LD20_RESET_CMD to LD20! error code (%d)\n", ret);
+		//return;
 	} else {
 		printk("Wrote LD20_RESET_CMD to address 0x00.\n");
 	}
@@ -120,7 +120,7 @@ void main(void)
 	
 	ret = i2c_transfer(i2c_dev, &msgs2[0], 2, LD20_I2C_ADDRESS);
 	if (ret) {
-		printk("Error writing to LD20! error code (%d)\n", ret);
+		printk("Error writing LD20_STARTCONTINOUS to LD20! error code (%d)\n", ret);
 		//return;
 	} else {
 		printk("Wrote LD20_STARTCONTINOUS to address 0x08.\n");
@@ -130,22 +130,22 @@ void main(void)
 
 	while(true) {
 		
-	// Byte1: Flow 8msb
-	// Byte2: Flow 8lsb
-	// Byte3: CRC
-	// Byte4: Temp 8msb
-	// Byte5: Temp 8lsb
-	// Byte6: CRC
-	// Byte7: Signaling flags 8msb
-	// Byte8: Signaling flags 8lsb
-	// Byte9: CRC
+		// Byte1: Flow 8msb
+		// Byte2: Flow 8lsb
+		// Byte3: CRC
+		// Byte4: Temp 8msb
+		// Byte5: Temp 8lsb
+		// Byte6: CRC
+		// Byte7: Signaling flags 8msb
+		// Byte8: Signaling flags 8lsb
+		// Byte9: CRC
 
-	// Bit, Signaling flags (set to high = 1, set to low = 0)
-	// 0 Air-in-Line flag
-	// 1 High Flow flag
-	// 2-4 Unused, reserved for future use.
-	// 5 Exponential smoothing active
-	// 6-15 Unused, reserved for future use
+		// Bit, Signaling flags (set to high = 1, set to low = 0)
+		// 0 Air-in-Line flag
+		// 1 High Flow flag
+		// 2-4 Unused, reserved for future use.
+		// 5 Exponential smoothing active
+		// 6-15 Unused, reserved for future use
 
 
 		uint16_t sensor_flow_value, sensor_temperature_value, sensor_signalingflags_value;
