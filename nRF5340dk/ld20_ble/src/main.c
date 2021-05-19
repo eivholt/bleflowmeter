@@ -1,11 +1,5 @@
 /* main.c - Application main entry point */
 
-/*
- * Copyright (c) 2015-2016 Intel Corporation
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
@@ -28,14 +22,19 @@
 
 /* Custom Service Variables */
 static struct bt_uuid_128 vnd_uuid = BT_UUID_INIT_128(
-	0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
-	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
+	0x9f,0xf1,0xbe,0xf5,0x7b,0x60,0xa4,0x4f,0x85,0x00,0xf9,0xe3,0x08,0x31,0xb4,0xa1);
 
-static struct bt_uuid_128 vnd_enc_uuid = BT_UUID_INIT_128(
-	0xf1, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
-	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
+static struct bt_uuid_16 vnd_ld20_flow_uuid = BT_UUID_INIT_16(
+	0x01);
+
+static struct bt_uuid_16 vnd_ld20_flags_uuid = BT_UUID_INIT_16(
+	0x02);
+
+static const struct bt_uuid_16 vnd_long_uuid = BT_UUID_INIT_16(
+	0xFF);
 
 static uint8_t vnd_value[] = { 'V', 'e', 'n', 'd', 'o', 'r' };
+static uint8_t vnd_value2[] = { 'V', 'e', 'n', 'd', 'o', 'r' };
 
 #define I2C_DEV "I2C_1"
 #define LD20_I2C_ADDRESS	0x08
@@ -139,28 +138,28 @@ static ssize_t write_long_vnd(struct bt_conn *conn,
 	return len;
 }
 
-static const struct bt_uuid_128 vnd_long_uuid = BT_UUID_INIT_128(
-	0xf3, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
-	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
-
 static struct bt_gatt_cep vnd_long_cep = {
 	.properties = BT_GATT_CEP_RELIABLE_WRITE,
 };
 
 static const struct bt_uuid_128 vnd_write_cmd_uuid = BT_UUID_INIT_128(
-	0xf4, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
-	0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12);
+	0x3c,0xf5,0x87,0x74,0xe5,0xdd,0xa2,0x45,0xa4,0xc9,0x7a,0xcb,0xd2,0xd2,0xd1,0xbb);
 
+static uint8_t mfg_data[] = { 0xff, 0xff, 0x00 };
 
 /* Vendor Primary Service Declaration */
 BT_GATT_SERVICE_DEFINE(vnd_svc,
 	BT_GATT_PRIMARY_SERVICE(&vnd_uuid),
-	BT_GATT_CHARACTERISTIC(&vnd_enc_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+	BT_GATT_CHARACTERISTIC(&vnd_ld20_flow_uuid.uuid,
+			       BT_GATT_CHRC_READ |
 			       BT_GATT_CHRC_INDICATE,
-			       BT_GATT_PERM_READ |
-			       BT_GATT_PERM_WRITE,
-			       read_vnd, write_vnd, vnd_value),
+			       BT_GATT_PERM_READ,
+			       read_vnd, NULL, vnd_value2),
+	BT_GATT_CHARACTERISTIC(&vnd_ld20_flags_uuid.uuid,
+			       BT_GATT_CHRC_READ |
+			       BT_GATT_CHRC_INDICATE,
+			       BT_GATT_PERM_READ,
+			       read_vnd, NULL, vnd_value),
 	BT_GATT_CCC(vnd_ccc_cfg_changed,
 		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 	BT_GATT_CHARACTERISTIC(&vnd_long_uuid.uuid, BT_GATT_CHRC_READ |
@@ -172,12 +171,12 @@ BT_GATT_SERVICE_DEFINE(vnd_svc,
 );
 
 static const struct bt_data ad[] = {
+	BT_DATA(BT_DATA_MANUFACTURER_DATA, mfg_data, 3),
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL,
 		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL,
-		      0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12,
-		      0x78, 0x56, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12),
+		      0x51,0xd4,0x41,0xab,0x50,0xa2,0xae,0x41,0xbe,0x4b,0x5d,0x82,0xd8,0xf5,0xd1,0xea),
 };
 
 static void connected(struct bt_conn *conn, uint8_t err)
@@ -234,6 +233,8 @@ static void bas_notify(void)
 
 void main(void)
 {
+	printk("sizeof(int): %x, sizeof(float): %x\n", sizeof(int), sizeof(float));
+
 	int i, ret;
 	const struct device *i2c_dev;
 	i2c_dev = device_get_binding(I2C_DEV);
@@ -286,6 +287,8 @@ void main(void)
 
 	bt_conn_cb_register(&conn_callbacks);
 	
+	
+
 	/* Implement notification. At the moment there is no suitable way
 	 * of starting delayed work so we do it here
 	 */
@@ -357,11 +360,26 @@ void main(void)
 
 			//flow_value++;
 
+			uint8_t sensor_reading[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
+			//printk("Flow as hex:%a", scaled_flow_value);
+
+			ind_params.uuid = &vnd_ld20_flags_uuid.uuid;
 			ind_params.attr = &vnd_svc.attrs[2];
 			ind_params.func = indicate_cb;
 			ind_params.destroy = indicate_destroy;
-			ind_params.data = &flag_high_flow;
-			ind_params.len = sizeof(flag_high_flow);
+			ind_params.data = &sensor_reading;
+			ind_params.len = sizeof(sensor_reading);
+
+			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
+				indicating = 1U;
+			}
+
+			ind_params.uuid = &vnd_ld20_flow_uuid.uuid;
+			ind_params.attr = &vnd_svc.attrs[2];
+			ind_params.func = indicate_cb;
+			ind_params.destroy = indicate_destroy;
+			ind_params.data = &sensor_reading;
+			ind_params.len = sizeof(sensor_reading);
 
 			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
 				indicating = 1U;

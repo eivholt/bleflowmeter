@@ -1,4 +1,8 @@
 {
     "restructuredtext.confPath": "",
-    "python.pythonPath": "C:\\Users\\Eivind\\AppData\\Local\\Programs\\Python\\Python39\\python.exe"
+    "python.pythonPath": "C:\\Users\\Eivind\\AppData\\Local\\Programs\\Python\\Python39\\python.exe",
+    "files.associations": {
+        "initializer_list": "c",
+        "type_traits": "c"
+    }
 }
