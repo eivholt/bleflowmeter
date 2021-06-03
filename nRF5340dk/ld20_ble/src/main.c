@@ -34,10 +34,13 @@ static const struct bt_uuid_16 vnd_long_uuid = BT_UUID_INIT_16(
 	0xFF);
 
 static uint8_t vnd_value[] = { 'V', 'e', 'n', 'd', 'o', 'r' };
-static uint8_t vnd_value2[] = { 'V', 'e', 'n', 'd', 'o', 'r' };
+static uint8_t vnd_value2[] = { 'S', 'e', 'n' };
 
 #define I2C_DEV "I2C_1"
 #define LD20_I2C_ADDRESS	0x08
+
+const struct device *i2c_dev;
+
 static const uint16_t LD20_STARTCONTINOUS_CMD1 = 	0x36;
 static const uint16_t LD20_STARTCONTINOUS_CMD2 = 	0x08;
 static const uint16_t LD20_PARTNAME_CMD = 			0x367C;
@@ -80,7 +83,8 @@ static uint8_t simulate_vnd;
 static uint8_t indicating;
 static uint8_t flow_value = 1U;
 
-static struct bt_gatt_indicate_params ind_params;
+static struct bt_gatt_indicate_params ind_params_flow;
+static struct bt_gatt_indicate_params ind_params_flags;
 
 static void vnd_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
@@ -155,6 +159,8 @@ BT_GATT_SERVICE_DEFINE(vnd_svc,
 			       BT_GATT_CHRC_INDICATE,
 			       BT_GATT_PERM_READ,
 			       read_vnd, NULL, vnd_value2),
+	BT_GATT_CCC(vnd_ccc_cfg_changed,
+		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 	BT_GATT_CHARACTERISTIC(&vnd_ld20_flags_uuid.uuid,
 			       BT_GATT_CHRC_READ |
 			       BT_GATT_CHRC_INDICATE,
@@ -231,18 +237,9 @@ static void bas_notify(void)
 	bt_bas_set_battery_level(battery_level);
 }
 
-void main(void)
+static void ld20_reset()
 {
-	printk("sizeof(int): %x, sizeof(float): %x\n", sizeof(int), sizeof(float));
-
-	int i, ret;
-	const struct device *i2c_dev;
-	i2c_dev = device_get_binding(I2C_DEV);
-	if (!i2c_dev) {
-		printk("I2C: Device driver not found.\n");
-		return;
-	}
-
+	int ret;
 	struct i2c_msg msgs[1];
 	uint8_t data[] = {LD20_RESET_CMD};
 	msgs[0].buf = data;
@@ -259,22 +256,41 @@ void main(void)
 
 	// Give LD20 time to soft reboot
 	k_msleep(25);
+}
 
-	struct i2c_msg msgs2[1];
+static void ld20_startcontinous()
+{
+	int ret;
+	struct i2c_msg msgs[1];
 	uint8_t data2[] = {LD20_STARTCONTINOUS_CMD1, LD20_STARTCONTINOUS_CMD2};
-	msgs2[0].buf = data2;
-	msgs2[0].len = 2;
-	msgs2[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+	msgs[0].buf = data2;
+	msgs[0].len = 2;
+	msgs[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
 	
-	ret = i2c_transfer(i2c_dev, &msgs2[0], 2, LD20_I2C_ADDRESS);
+	ret = i2c_transfer(i2c_dev, &msgs[0], 2, LD20_I2C_ADDRESS);
 	if (ret) {
 		printk("Error writing LD20_STARTCONTINOUS to LD20! error code (%d)\n", ret);
-		//return;
+		//return; Ignore error message, works anyway.
 	} else {
 		printk("Wrote LD20_STARTCONTINOUS to address 0x08.\n");
 	}
 
 	k_msleep(120);
+}
+
+void main(void)
+{
+	//printk("sizeof(int): %x, sizeof(float): %x\n", sizeof(int), sizeof(float));
+
+	int ret;
+	i2c_dev = device_get_binding(I2C_DEV);
+	if (!i2c_dev) {
+		printk("I2C: Device driver not found.\n");
+		return;
+	}
+
+	ld20_reset();
+	ld20_startcontinous();
 
 	int err;
 	err = bt_enable(NULL);
@@ -284,11 +300,8 @@ void main(void)
 	}
 
 	bt_ready();
-
 	bt_conn_cb_register(&conn_callbacks);
 	
-	
-
 	/* Implement notification. At the moment there is no suitable way
 	 * of starting delayed work so we do it here
 	 */
@@ -356,32 +369,43 @@ void main(void)
 			flag_high_flow = ((data3[7] >> 1) & 0x01);
 			flag_exp_smooth = ((data3[7] >> 5) & 0x01);
 
-			printk("Read flow: %.2f temperature: %.2f flags: Air in line: %x High flow: %x Exponential smoothing active: %x \n", scaled_flow_value, scaled_temperature_value, flag_air_in_line, flag_high_flow, flag_exp_smooth);
+			printk("Read flow: %.2f temperature: %.2f flags: Air in line: %x High flow: %x Exponential smoothing active: %x \n", 
+				scaled_flow_value, 
+				scaled_temperature_value, 
+				flag_air_in_line, 
+				flag_high_flow, 
+				flag_exp_smooth);
 
-			//flow_value++;
-
-			uint8_t sensor_reading[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
+			uint8_t sensor_flags[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
 			//printk("Flow as hex:%a", scaled_flow_value);
 
-			ind_params.uuid = &vnd_ld20_flags_uuid.uuid;
-			ind_params.attr = &vnd_svc.attrs[2];
-			ind_params.func = indicate_cb;
-			ind_params.destroy = indicate_destroy;
-			ind_params.data = &sensor_reading;
-			ind_params.len = sizeof(sensor_reading);
+			ind_params_flags.uuid = &vnd_ld20_flags_uuid.uuid;
+			ind_params_flags.attr = &vnd_svc.attrs[0];
+			ind_params_flags.func = indicate_cb;
+			ind_params_flags.destroy = indicate_destroy;
+			ind_params_flags.data = &sensor_flags;
+			ind_params_flags.len = sizeof(sensor_flags);
 
-			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
+			if (bt_gatt_indicate(NULL, &ind_params_flags) == 0) {
 				indicating = 1U;
 			}
 
-			ind_params.uuid = &vnd_ld20_flow_uuid.uuid;
-			ind_params.attr = &vnd_svc.attrs[2];
-			ind_params.func = indicate_cb;
-			ind_params.destroy = indicate_destroy;
-			ind_params.data = &sensor_reading;
-			ind_params.len = sizeof(sensor_reading);
+			while(indicating){
+				printk(" * ");
+			}
 
-			if (bt_gatt_indicate(NULL, &ind_params) == 0) {
+			ind_params_flow.uuid = &vnd_ld20_flow_uuid.uuid;
+			ind_params_flow.attr = &vnd_svc.attrs[0];
+			ind_params_flow.func = indicate_cb;
+			ind_params_flow.destroy = indicate_destroy;
+			ind_params_flow.data = &scaled_flow_value;
+			ind_params_flow.len = sizeof(scaled_flow_value);
+
+			// if(bt_gatt_notify_multiple(NULL, 2, ) == 0) {
+			// 	notifying = 1U;
+			// }
+
+			if (bt_gatt_indicate(NULL, &ind_params_flow) == 0) {
 				indicating = 1U;
 			}
 		}
