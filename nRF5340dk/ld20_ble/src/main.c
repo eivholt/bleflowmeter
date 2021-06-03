@@ -377,6 +377,13 @@ void main(void)
 				flag_exp_smooth);
 
 			uint8_t sensor_flags[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
+
+			union {
+				float f;
+				uint32_t u;
+			} f2u = { .f = scaled_flow_value };
+
+			printk("scaled_flow_value: %f\n   : 0x%" PRIx32 "\n", scaled_flow_value, f2u.u);
 			//printk("Flow as hex:%a", scaled_flow_value);
 
 			ind_params_flags.uuid = &vnd_ld20_flags_uuid.uuid;
