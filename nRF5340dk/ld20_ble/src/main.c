@@ -81,7 +81,6 @@ static ssize_t write_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 
 static uint8_t simulate_vnd;
 static uint8_t indicating;
-static uint8_t flow_value = 1U;
 
 static struct bt_gatt_indicate_params ind_params_flow;
 static struct bt_gatt_indicate_params ind_params_flags;
@@ -241,12 +240,14 @@ static void ld20_reset()
 {
 	int ret;
 	struct i2c_msg msgs[1];
-	uint8_t data[] = {LD20_RESET_CMD};
-	msgs[0].buf = data;
-	msgs[0].len = 1;
-	msgs[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+	uint8_t i2c_cmd = LD20_RESET_CMD;
 	
-	ret = i2c_transfer(i2c_dev, &msgs[0], 1, 0x00);
+	// int i2c_transfer(const struct device* dev, struct i2c_msg* msgs, uint8_t num_msgs, uint16_t addr);
+	// int i2c_write(const struct device* dev, const uint8_t* buf, uint32_t num_bytes, uint16_t addr);
+	// int i2c_burst_write(const struct device* dev, uint16_t dev_addr, uint8_t start_addr, const uint8_t* buf, uint32_t num_bytes);
+	// int i2c_burst_read(const struct device* dev, uint16_t dev_addr, uint8_t start_addr, uint8_t* buf, uint32_t num_bytes);
+
+	ret = i2c_write(i2c_dev, &i2c_cmd, 1, 0x00);
 	if (ret) {
 		printk("Error writing LD20_RESET_CMD to LD20! error code (%d)\n", ret);
 		return;
@@ -262,12 +263,9 @@ static void ld20_startcontinous()
 {
 	int ret;
 	struct i2c_msg msgs[1];
-	uint8_t data2[] = {LD20_STARTCONTINOUS_CMD1, LD20_STARTCONTINOUS_CMD2};
-	msgs[0].buf = data2;
-	msgs[0].len = 2;
-	msgs[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+	uint8_t i2c_cmd[] = {LD20_STARTCONTINOUS_CMD1, LD20_STARTCONTINOUS_CMD2};
 	
-	ret = i2c_transfer(i2c_dev, &msgs[0], 2, LD20_I2C_ADDRESS);
+	ret = i2c_write(i2c_dev, &i2c_cmd[0], 2, LD20_I2C_ADDRESS);
 	if (ret) {
 		printk("Error writing LD20_STARTCONTINOUS to LD20! error code (%d)\n", ret);
 		//return; Ignore error message, works anyway.
@@ -339,25 +337,21 @@ void main(void)
 			int16_t signed_flow_value, signed_temperature_value;
 			uint8_t sensor_flow_crc, sensor_temperature_crc, sensor_signalingflags_crc;
 		
-			struct i2c_msg msgs3[1];
-			uint8_t data3[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-			msgs3[0].buf = data3;
-			msgs3[0].len = 9;
-			msgs3[0].flags = I2C_MSG_READ | I2C_MSG_STOP;
+			uint8_t i2c_data[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 			
-			ret = i2c_transfer(i2c_dev, &msgs3[0], 9, LD20_I2C_ADDRESS);
+			ret = i2c_read(i2c_dev, &i2c_data[0], 9, LD20_I2C_ADDRESS);
 
 			//printk("Read 0x%X 0x%X 0x%X 0x%X 0x%X 0x%X \n", data3[0], data3[1], data3[3], data3[4], data3[6], data3[7]);
 
-			sensor_flow_value = data3[0] << 8;
-			sensor_flow_value |= data3[1];
-			sensor_flow_crc = data3[2];
-			sensor_temperature_value = data3[3] << 8;
-			sensor_temperature_value |= data3[4];
-			sensor_temperature_crc = data3[5];
-			sensor_signalingflags_value = data3[6] << 8;
-			sensor_signalingflags_value |= data3[7];
-			sensor_signalingflags_crc = data3[8];
+			sensor_flow_value = i2c_data[0] << 8;
+			sensor_flow_value |= i2c_data[1];
+			sensor_flow_crc = i2c_data[2];
+			sensor_temperature_value = i2c_data[3] << 8;
+			sensor_temperature_value |= i2c_data[4];
+			sensor_temperature_crc = i2c_data[5];
+			sensor_signalingflags_value = i2c_data[6] << 8;
+			sensor_signalingflags_value |= i2c_data[7];
+			sensor_signalingflags_crc = i2c_data[8];
 
 			signed_flow_value = (int16_t) sensor_flow_value;
 			scaled_flow_value = ((float) signed_flow_value) / SCALE_FACTOR_FLOW;
@@ -365,9 +359,9 @@ void main(void)
 			signed_temperature_value = (int16_t) sensor_temperature_value;
 			scaled_temperature_value = ((float) signed_temperature_value) / SCALE_FACTOR_TEMP;
 
-			flag_air_in_line = ((data3[7] >> 0) & 0x01);
-			flag_high_flow = ((data3[7] >> 1) & 0x01);
-			flag_exp_smooth = ((data3[7] >> 5) & 0x01);
+			flag_air_in_line = ((i2c_data[7] >> 0) & 0x01);
+			flag_high_flow = ((i2c_data[7] >> 1) & 0x01);
+			flag_exp_smooth = ((i2c_data[7] >> 5) & 0x01);
 
 			printk("Read flow: %.2f temperature: %.2f flags: Air in line: %x High flow: %x Exponential smoothing active: %x \n", 
 				scaled_flow_value, 
