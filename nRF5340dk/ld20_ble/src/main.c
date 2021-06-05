@@ -43,8 +43,10 @@ const struct device *i2c_dev;
 
 static const uint16_t LD20_STARTCONTINOUS_CMD1 = 	0x36;
 static const uint16_t LD20_STARTCONTINOUS_CMD2 = 	0x08;
-static const uint16_t LD20_PARTNAME_CMD = 			0x367C;
-static const uint16_t LD20_SERIAL_CMD = 			0xE102;
+// static const uint16_t LD20_ENDCONTINOUS_CMD1 = 		0x3F;
+// static const uint16_t LD20_ENDCONTINOUS_CMD2 = 		0xF9;
+// static const uint16_t LD20_PARTNAME_CMD = 			0x367C;
+// static const uint16_t LD20_SERIAL_CMD = 			0xE102;
 static const uint8_t LD20_RESET_CMD = 				0x06;
 
 const float SCALE_FACTOR_FLOW = 1200.0;
@@ -64,20 +66,20 @@ static ssize_t read_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 				 strlen(value));
 }
 
-static ssize_t write_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 const void *buf, uint16_t len, uint16_t offset,
-			 uint8_t flags)
-{
-	uint8_t *value = attr->user_data;
+// static ssize_t write_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+// 			 const void *buf, uint16_t len, uint16_t offset,
+// 			 uint8_t flags)
+// {
+// 	uint8_t *value = attr->user_data;
 
-	if (offset + len > sizeof(vnd_value)) {
-		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-	}
+// 	if (offset + len > sizeof(vnd_value)) {
+// 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+// 	}
 
-	memcpy(value + offset, buf, len);
+// 	memcpy(value + offset, buf, len);
 
-	return len;
-}
+// 	return len;
+// }
 
 static uint8_t simulate_vnd;
 static uint8_t indicating;
@@ -93,7 +95,7 @@ static void vnd_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 static void indicate_cb(struct bt_conn *conn,
 			struct bt_gatt_indicate_params *params, uint8_t err)
 {
-	printk("Indication %s\n", err != 0U ? "fail" : "success");
+	//printk("Indication %s\n", err != 0U ? "fail" : "success");
 }
 
 static void indicate_destroy(struct bt_gatt_indicate_params *params)
@@ -145,8 +147,8 @@ static struct bt_gatt_cep vnd_long_cep = {
 	.properties = BT_GATT_CEP_RELIABLE_WRITE,
 };
 
-static const struct bt_uuid_128 vnd_write_cmd_uuid = BT_UUID_INIT_128(
-	0x3c,0xf5,0x87,0x74,0xe5,0xdd,0xa2,0x45,0xa4,0xc9,0x7a,0xcb,0xd2,0xd2,0xd1,0xbb);
+// static const struct bt_uuid_128 vnd_write_cmd_uuid = BT_UUID_INIT_128(
+// 	0x3c,0xf5,0x87,0x74,0xe5,0xdd,0xa2,0x45,0xa4,0xc9,0x7a,0xcb,0xd2,0xd2,0xd1,0xbb);
 
 static uint8_t mfg_data[] = { 0xff, 0xff, 0x00 };
 
@@ -239,13 +241,7 @@ static void bas_notify(void)
 static void ld20_reset()
 {
 	int ret;
-	struct i2c_msg msgs[1];
 	uint8_t i2c_cmd = LD20_RESET_CMD;
-	
-	// int i2c_transfer(const struct device* dev, struct i2c_msg* msgs, uint8_t num_msgs, uint16_t addr);
-	// int i2c_write(const struct device* dev, const uint8_t* buf, uint32_t num_bytes, uint16_t addr);
-	// int i2c_burst_write(const struct device* dev, uint16_t dev_addr, uint8_t start_addr, const uint8_t* buf, uint32_t num_bytes);
-	// int i2c_burst_read(const struct device* dev, uint16_t dev_addr, uint8_t start_addr, uint8_t* buf, uint32_t num_bytes);
 
 	ret = i2c_write(i2c_dev, &i2c_cmd, 1, 0x00);
 	if (ret) {
@@ -262,7 +258,6 @@ static void ld20_reset()
 static void ld20_startcontinous()
 {
 	int ret;
-	struct i2c_msg msgs[1];
 	uint8_t i2c_cmd[] = {LD20_STARTCONTINOUS_CMD1, LD20_STARTCONTINOUS_CMD2};
 	
 	ret = i2c_write(i2c_dev, &i2c_cmd[0], 2, LD20_I2C_ADDRESS);
@@ -274,6 +269,20 @@ static void ld20_startcontinous()
 	}
 
 	k_msleep(120);
+}
+
+static __INLINE uint8_t bds_float_encode(const float * p_value, uint8_t * p_encoded_data) {
+	union { 
+		float float_val;
+		uint8_t char_val[4];
+	} encoder;
+
+	encoder.float_val = *p_value;
+	p_encoded_data[0] = encoder.char_val[0];
+	p_encoded_data[1] = encoder.char_val[1];
+	p_encoded_data[2] = encoder.char_val[2];
+	p_encoded_data[3] = encoder.char_val[3];
+	return(4);
 }
 
 void main(void)
@@ -341,6 +350,12 @@ void main(void)
 			
 			ret = i2c_read(i2c_dev, &i2c_data[0], 9, LD20_I2C_ADDRESS);
 
+			if (ret) {
+				printk("Error reading measurement from LD20! error code (%d)\n", ret);
+				//return; Might be warming up.
+			} else {
+				printk("Read measurement from address 0x08.\n");
+			}
 			//printk("Read 0x%X 0x%X 0x%X 0x%X 0x%X 0x%X \n", data3[0], data3[1], data3[3], data3[4], data3[6], data3[7]);
 
 			sensor_flow_value = i2c_data[0] << 8;
@@ -363,8 +378,9 @@ void main(void)
 			flag_high_flow = ((i2c_data[7] >> 1) & 0x01);
 			flag_exp_smooth = ((i2c_data[7] >> 5) & 0x01);
 
-			printk("Read flow: %.2f temperature: %.2f flags: Air in line: %x High flow: %x Exponential smoothing active: %x \n", 
-				scaled_flow_value, 
+			printk("Read flow: %.4f, Unscaled flow: %ld, Temperature: %.2f, Flags: Air in line: %x, High flow: %x, Exponential smoothing active: %x \n", 
+				scaled_flow_value,
+				signed_flow_value,
 				scaled_temperature_value, 
 				flag_air_in_line, 
 				flag_high_flow, 
@@ -372,12 +388,24 @@ void main(void)
 
 			uint8_t sensor_flags[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
 
-			union {
-				float f;
-				uint32_t u;
-			} f2u = { .f = scaled_flow_value };
 
-			printk("scaled_flow_value: %f\n   : 0x%" PRIx32 "\n", scaled_flow_value, f2u.u);
+			
+
+			// union { 
+			// 	float float_val;
+			// 	uint8_t char_val[4];
+			// } float_encoder = { .float_val = scaled_flow_value };
+
+			// uint8_t flow_bytes[4];
+			// bds_float_encode(&scaled_flow_value, &flow_bytes);
+
+			// flow_bytes[3] = float_encoder.char_val[0];
+			// flow_bytes[2] = float_encoder.char_val[1];
+			// flow_bytes[1] = float_encoder.char_val[2];
+			// flow_bytes[0] = float_encoder.char_val[3];
+
+			// printk("scaled_flow_value: %f : 0x%" PRIx8 "\n", scaled_flow_value, float_encoder.char_val);
+			// printk("scaled_flow_value: %f : 0x%" PRIx8 "\n", scaled_flow_value, flow_bytes);
 			//printk("Flow as hex:%a", scaled_flow_value);
 
 			ind_params_flags.uuid = &vnd_ld20_flags_uuid.uuid;
@@ -399,8 +427,8 @@ void main(void)
 			ind_params_flow.attr = &vnd_svc.attrs[0];
 			ind_params_flow.func = indicate_cb;
 			ind_params_flow.destroy = indicate_destroy;
-			ind_params_flow.data = &scaled_flow_value;
-			ind_params_flow.len = sizeof(scaled_flow_value);
+			ind_params_flow.data = &signed_flow_value;
+			ind_params_flow.len = sizeof(signed_flow_value);
 
 			// if(bt_gatt_notify_multiple(NULL, 2, ) == 0) {
 			// 	notifying = 1U;
