@@ -54,9 +54,6 @@ const float SCALE_FACTOR_TEMP = 200.0;
 const char *UNIT_FLOW = " ml/h";
 const char *UNIT_TEMP = " deg C";
 
-uint8_t flag_air_in_line, flag_high_flow, flag_exp_smooth;
-float scaled_flow_value, scaled_temperature_value;
-
 static ssize_t read_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			void *buf, uint16_t len, uint16_t offset)
 {
@@ -316,7 +313,7 @@ void main(void)
 		k_sleep(K_SECONDS(1));
 
 		/* Battery level simulation */
-		bas_notify();
+		//bas_notify();
 
 		/* Vendor indication simulation */
 		if (simulate_vnd) {
@@ -345,6 +342,8 @@ void main(void)
 			uint16_t sensor_flow_value, sensor_temperature_value, sensor_signalingflags_value;
 			int16_t signed_flow_value, signed_temperature_value;
 			uint8_t sensor_flow_crc, sensor_temperature_crc, sensor_signalingflags_crc;
+			uint8_t flag_air_in_line, flag_high_flow, flag_exp_smooth;
+			float scaled_flow_value, scaled_temperature_value;
 		
 			uint8_t i2c_data[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 			
@@ -352,11 +351,12 @@ void main(void)
 
 			if (ret) {
 				printk("Error reading measurement from LD20! error code (%d)\n", ret);
-				//return; Might be warming up.
+				k_msleep(50);
+				// Might be warming up, keep trying.
 			} else {
 				printk("Read measurement from address 0x08.\n");
 			}
-			//printk("Read 0x%X 0x%X 0x%X 0x%X 0x%X 0x%X \n", data3[0], data3[1], data3[3], data3[4], data3[6], data3[7]);
+			printk("Read 0x%X 0x%X 0x%X 0x%X 0x%X 0x%X \n", i2c_data[0], i2c_data[1], i2c_data[3], i2c_data[4], i2c_data[6], i2c_data[7]);
 
 			sensor_flow_value = i2c_data[0] << 8;
 			sensor_flow_value |= i2c_data[1];
@@ -378,8 +378,9 @@ void main(void)
 			flag_high_flow = ((i2c_data[7] >> 1) & 0x01);
 			flag_exp_smooth = ((i2c_data[7] >> 5) & 0x01);
 
-			printk("Read flow: %.4f, Unscaled flow: %ld, Temperature: %.2f, Flags: Air in line: %x, High flow: %x, Exponential smoothing active: %x \n", 
+			printk("Scaled flow: %.4f, sensor flow value: %ld, Unscaled flow: %d, Temperature: %.2f, Flags: AiL: %x, HiF: %x, ExpSmooth: %x \n", 
 				scaled_flow_value,
+				sensor_flow_value,
 				signed_flow_value,
 				scaled_temperature_value, 
 				flag_air_in_line, 
@@ -387,26 +388,6 @@ void main(void)
 				flag_exp_smooth);
 
 			uint8_t sensor_flags[] =  { flag_air_in_line, flag_high_flow, flag_exp_smooth };
-
-
-			
-
-			// union { 
-			// 	float float_val;
-			// 	uint8_t char_val[4];
-			// } float_encoder = { .float_val = scaled_flow_value };
-
-			// uint8_t flow_bytes[4];
-			// bds_float_encode(&scaled_flow_value, &flow_bytes);
-
-			// flow_bytes[3] = float_encoder.char_val[0];
-			// flow_bytes[2] = float_encoder.char_val[1];
-			// flow_bytes[1] = float_encoder.char_val[2];
-			// flow_bytes[0] = float_encoder.char_val[3];
-
-			// printk("scaled_flow_value: %f : 0x%" PRIx8 "\n", scaled_flow_value, float_encoder.char_val);
-			// printk("scaled_flow_value: %f : 0x%" PRIx8 "\n", scaled_flow_value, flow_bytes);
-			//printk("Flow as hex:%a", scaled_flow_value);
 
 			ind_params_flags.uuid = &vnd_ld20_flags_uuid.uuid;
 			ind_params_flags.attr = &vnd_svc.attrs[0];
@@ -420,7 +401,8 @@ void main(void)
 			}
 
 			while(indicating){
-				printk(" * ");
+				k_msleep(50);
+				//printk(" - ");
 			}
 
 			ind_params_flow.uuid = &vnd_ld20_flow_uuid.uuid;
@@ -429,10 +411,6 @@ void main(void)
 			ind_params_flow.destroy = indicate_destroy;
 			ind_params_flow.data = &signed_flow_value;
 			ind_params_flow.len = sizeof(signed_flow_value);
-
-			// if(bt_gatt_notify_multiple(NULL, 2, ) == 0) {
-			// 	notifying = 1U;
-			// }
 
 			if (bt_gatt_indicate(NULL, &ind_params_flow) == 0) {
 				indicating = 1U;
