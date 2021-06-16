@@ -63,21 +63,6 @@ static ssize_t read_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 				 strlen(value));
 }
 
-// static ssize_t write_vnd(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-// 			 const void *buf, uint16_t len, uint16_t offset,
-// 			 uint8_t flags)
-// {
-// 	uint8_t *value = attr->user_data;
-
-// 	if (offset + len > sizeof(vnd_value)) {
-// 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-// 	}
-
-// 	memcpy(value + offset, buf, len);
-
-// 	return len;
-// }
-
 static uint8_t simulate_vnd;
 static uint8_t indicating;
 
@@ -101,52 +86,6 @@ static void indicate_destroy(struct bt_gatt_indicate_params *params)
 	indicating = 0U;
 }
 
-#define MAX_DATA 74
-static uint8_t vnd_long_value[] = {
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '1',
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '2',
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '3',
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '4',
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '5',
-		  'V', 'e', 'n', 'd', 'o', 'r', ' ', 'd', 'a', 't', 'a', '6',
-		  '.', ' ' };
-
-static ssize_t read_long_vnd(struct bt_conn *conn,
-			     const struct bt_gatt_attr *attr, void *buf,
-			     uint16_t len, uint16_t offset)
-{
-	const char *value = attr->user_data;
-
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, value,
-				 sizeof(vnd_long_value));
-}
-
-static ssize_t write_long_vnd(struct bt_conn *conn,
-			      const struct bt_gatt_attr *attr, const void *buf,
-			      uint16_t len, uint16_t offset, uint8_t flags)
-{
-	uint8_t *value = attr->user_data;
-
-	if (flags & BT_GATT_WRITE_FLAG_PREPARE) {
-		return 0;
-	}
-
-	if (offset + len > sizeof(vnd_long_value)) {
-		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
-	}
-
-	memcpy(value + offset, buf, len);
-
-	return len;
-}
-
-static struct bt_gatt_cep vnd_long_cep = {
-	.properties = BT_GATT_CEP_RELIABLE_WRITE,
-};
-
-// static const struct bt_uuid_128 vnd_write_cmd_uuid = BT_UUID_INIT_128(
-// 	0x3c,0xf5,0x87,0x74,0xe5,0xdd,0xa2,0x45,0xa4,0xc9,0x7a,0xcb,0xd2,0xd2,0xd1,0xbb);
-
 static uint8_t mfg_data[] = { 0xff, 0xff, 0x00 };
 
 /* Vendor Primary Service Declaration */
@@ -166,12 +105,6 @@ BT_GATT_SERVICE_DEFINE(vnd_svc,
 			       read_vnd, NULL, vnd_value),
 	BT_GATT_CCC(vnd_ccc_cfg_changed,
 		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-	BT_GATT_CHARACTERISTIC(&vnd_long_uuid.uuid, BT_GATT_CHRC_READ |
-			       BT_GATT_CHRC_WRITE | BT_GATT_CHRC_EXT_PROP,
-			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE |
-			       BT_GATT_PERM_PREPARE_WRITE,
-			       read_long_vnd, write_long_vnd, &vnd_long_value),
-	BT_GATT_CEP(&vnd_long_cep)
 );
 
 static const struct bt_data ad[] = {
@@ -221,20 +154,6 @@ static void bt_ready(void)
 	printk("Advertising successfully started\n");
 }
 
-
-static void bas_notify(void)
-{
-	uint8_t battery_level = bt_bas_get_battery_level();
-
-	battery_level--;
-
-	if (!battery_level) {
-		battery_level = 100U;
-	}
-
-	bt_bas_set_battery_level(battery_level);
-}
-
 static void ld20_reset()
 {
 	int ret;
@@ -268,24 +187,8 @@ static void ld20_startcontinous()
 	k_msleep(120);
 }
 
-static __INLINE uint8_t bds_float_encode(const float * p_value, uint8_t * p_encoded_data) {
-	union { 
-		float float_val;
-		uint8_t char_val[4];
-	} encoder;
-
-	encoder.float_val = *p_value;
-	p_encoded_data[0] = encoder.char_val[0];
-	p_encoded_data[1] = encoder.char_val[1];
-	p_encoded_data[2] = encoder.char_val[2];
-	p_encoded_data[3] = encoder.char_val[3];
-	return(4);
-}
-
 void main(void)
 {
-	//printk("sizeof(int): %x, sizeof(float): %x\n", sizeof(int), sizeof(float));
-
 	int ret;
 	i2c_dev = device_get_binding(I2C_DEV);
 	if (!i2c_dev) {
@@ -312,9 +215,6 @@ void main(void)
 	while (1) {
 		k_sleep(K_SECONDS(1));
 
-		/* Battery level simulation */
-		//bas_notify();
-
 		/* Vendor indication simulation */
 		if (simulate_vnd) {
 			if (indicating) {
@@ -337,7 +237,6 @@ void main(void)
 			// 2-4 Unused, reserved for future use.
 			// 5 Exponential smoothing active
 			// 6-15 Unused, reserved for future use
-
 
 			uint16_t sensor_flow_value, sensor_temperature_value, sensor_signalingflags_value;
 			int16_t signed_flow_value, signed_temperature_value;
